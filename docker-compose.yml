@@ -1,0 +1,54 @@
+# Orquesta el entorno completo de la semilla: Postgres + la API.
+#
+# `docker compose up --build` alcanza para levantar todo: Postgres arranca,
+# se espera a que el healthcheck lo dé por sano, y recién ahí arranca el
+# contenedor de la API — cuyo entrypoint corre las migraciones y el seed
+# antes de levantar el servidor (ver docker/entrypoint.sh).
+#
+# Este archivo describe el modo "producción-like" (usa la etapa `runtime`
+# del Dockerfile). docker-compose.override.yml se suma automáticamente por
+# encima en desarrollo y cambia lo necesario para hot reload.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Volumen nombrado: los datos sobreviven a `docker compose down` (pero
+      # no a `docker compose down -v`, que además lo borra).
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `api` no arranca hasta que esto pase (ver depends_on más abajo).
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        # No alcanza con que el contenedor de `db` haya arrancado: hay que
+        # esperar a que el healthcheck de arriba pase, si no la API arranca
+        # y falla al conectarse porque Postgres todavía no acepta conexiones.
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+    ports:
+      - "${PORT}:${PORT}"
+
+volumes:
+  pgdata:

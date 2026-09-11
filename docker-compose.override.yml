@@ -1,0 +1,32 @@
+# Docker Compose aplica este archivo automáticamente ENCIMA de
+# docker-compose.yml cuando corrés `docker compose up` sin flags — es la
+# convención estándar de Compose para diferenciar desarrollo de producción
+# sin duplicar todo el archivo. Para levantar el modo "producción-like" sin
+# esto, hay que decirlo explícitamente:
+#
+#   docker compose -f docker-compose.yml up --build
+#
+# Lo que cambia acá respecto al archivo base:
+#   - build.target: build     -> usa la etapa intermedia del Dockerfile, que
+#     todavía tiene las devDependencies (tsx, prisma) instaladas.
+#   - command                 -> en vez de "node dist/server.js" corre
+#     "tsx watch src/server.ts": recompila y reinicia solo al guardar.
+#   - volumes                 -> monta el código fuente del host adentro del
+#     contenedor, así los cambios que hacés en tu editor se ven sin rebuild.
+#   - Postgres queda expuesto en el puerto 5432 del host para poder
+#     conectarte con un cliente de escritorio (DBeaver, TablePlus, etc).
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      target: build
+    entrypoint: ["./docker/entrypoint.sh"]
+    command: ["pnpm", "exec", "tsx", "watch", "src/server.ts"]
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+    environment:
+      NODE_ENV: development

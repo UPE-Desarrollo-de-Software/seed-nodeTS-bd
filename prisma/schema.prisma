@@ -1,0 +1,106 @@
+// prisma/schema.prisma
+// ---------------------------------------------------------------------
+// El modelo de datos completo de la semilla. Prisma lee este archivo
+// para dos cosas: generar el cliente TypeScript (`generator client`,
+// hacia `src/db/generated/`, importado únicamente por `src/db/client.ts`)
+// y calcular las migraciones SQL (`prisma/migrations/`, vía
+// `pnpm db:migrate` en desarrollo o `pnpm db:deploy` en producción/CI).
+//
+// Notar que este archivo NO tiene `datasource.url` — desde Prisma 7 esa
+// configuración se deprecó acá y se movió a `prisma.config.ts` en la
+// raíz, que es quien le dice a la CLI cómo conectarse.
+
+generator client {
+  // "prisma-client" (no "prisma-client-js"): el generator de Prisma 7,
+  // que produce un cliente standalone en vez de instalarse en
+  // node_modules/@prisma/client. `output` es obligatorio con este
+  // generator.
+  provider = "prisma-client"
+  output   = "../src/db/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Reexportado como valor y tipo en model/enums/rol.enum.ts para que el
+// resto del código no dependa de importar directo del cliente generado.
+enum Rol {
+  ADMIN
+  USER
+}
+
+// Usuario de la API (login/registro). Ver service/auth.service.ts y
+// repository/user.repository.ts.
+model User {
+  // uuid(7) en vez de uuid() a secas: los UUID v7 son ordenables por
+  // tiempo de creación (llevan un timestamp en los primeros bits), lo que
+  // los hace mucho más amigables como clave primaria de un índice B-tree
+  // que un UUID v4 puramente random (menos fragmentación del índice).
+  id            String         @id @default(uuid(7))
+  email         String         @unique @db.VarChar(255)
+  // Hash de argon2id — NUNCA el password en texto plano. Ver
+  // service/auth.service.ts (argon2.hash / argon2.verify) y
+  // mapper/user.mapper.ts (que se asegura de no exponer este campo).
+  passwordHash  String
+  rol           Rol            @default(USER)
+  // No se usa desactivación de usuarios en esta versión (a diferencia de
+  // Persona), pero se deja el campo por si hace falta más adelante.
+  activo        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+// Un refresh token emitido para un usuario. Nunca se guarda el token en
+// texto plano, solo su hash SHA-256 (ver service/token.service.ts). La
+// rotación con detección de reuso (sección "Flujo de autenticación" del
+// README) es la razón de ser de `revokedAt`: en vez de borrar el token al
+// usarlo, se marca como revocado — así, si alguien lo reintenta usar
+// después, `service/auth.service.ts` puede notar que es un reuso y
+// revocar toda la sesión del usuario.
+model RefreshToken {
+  id        String    @id @default(uuid(7))
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  // Acelera `revokeAllForUser` (repository/refresh-token.repository.ts),
+  // que filtra por `userId` en cada refresh/logout.
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// El módulo de negocio de ejemplo de esta semilla — el ABM completo (ver
+// service/persona.service.ts, repository/persona.repository.ts,
+// controller/persona.controller.ts). Es la plantilla a copiar para
+// agregar un módulo nuevo (ver README).
+model Persona {
+  id              String   @id @default(uuid(7))
+  nombre          String   @db.VarChar(100)
+  apellido        String   @db.VarChar(100)
+  // DNI argentino: 7 u 8 dígitos, sin puntos. Único a nivel de base
+  // además de validado por formato en dto/persona/create-persona.request.ts
+  // — la unicidad la puede violar una condición de carrera entre dos
+  // requests simultáneos, así que también se protege acá con @unique
+  // (y error-handler.ts sabe mapear el P2002 resultante a 409 igual).
+  dni             String   @unique @db.VarChar(8)
+  email           String?  @db.VarChar(255)
+  telefono        String?  @db.VarChar(30)
+  fechaNacimiento DateTime @db.Date
+  // Baja lógica: DELETE /personas/:id pone esto en false, nunca borra la
+  // fila. Ver repository/persona.repository.ts#softDelete.
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Acelera el listado ordenado/filtrado por apellido+nombre (el sort
+  // default de GET /personas, ver service/persona.service.ts).
+  @@index([apellido, nombre])
+  @@map("personas")
+}

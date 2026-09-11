@@ -1,0 +1,41 @@
+// tsconfig.json
+// ---------------------------------------------------------------------
+// TypeScript acepta comentarios en este archivo (usa un parser tipo
+// JSON5), así que se documenta acá mismo por qué está cada opción no
+// obvia. Compila solo `src/` a `dist/` — los tests (`tests/`) corren
+// directo con `tsx`/Vitest, sin pasar por este build.
+{
+  "compilerOptions": {
+    // ES2023 + NodeNext: el target real (Node 20.19+) soporta de sobra
+    // ES2023, y "NodeNext" para module/moduleResolution es lo que exige
+    // que los imports relativos en el código lleven extensión ".js" (aun
+    // siendo archivos .ts) — así compila a ESM válido para Node sin
+    // necesidad de un bundler. Ver la nota de la sección 3 del spec
+    // original sobre por qué el proyecto es ESM.
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "esModuleInterop": true,
+    // Los tipos de las dependencias (a veces desprolijos) no bloquean el
+    // build; solo se type-checkea el código propio.
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": true,
+    "verbatimModuleSyntax": false,
+    // Indexar un objeto con una key dinámica (`obj[key]`) da
+    // `T | undefined` en vez de `T` a secas — atrapa en build-time bugs
+    // como "leí `req.params.id` y asumí que siempre existe". Ver los
+    // comentarios en controller/persona.controller.ts para un ejemplo de
+    // cómo se maneja esto.
+    "noUncheckedIndexedAccess": true,
+    "isolatedModules": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"]
+}
